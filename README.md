@@ -12,10 +12,10 @@ Tools used:
 ## Table of contents
 
 1. [Distributed Systems and Cluster Coordination](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#chapter-01-distributed-systems-and-cluster-coordination)
-    - Distributed Systems
-    - Scalability
-    - Cluster Coordination
-2. Zookeeper Installation and Setup
+    - [Distributed Systems](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#distributed-systems)
+    - [Scalability](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#scalability)
+    - [Cluster Coordination](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#cluster-coordination)
+2. [Zookeeper Installation and Setup](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#chapter-02-zookeeper-installation-and-setup)
 3. Leader Election
 4. Cluster Auto-Healer
 
