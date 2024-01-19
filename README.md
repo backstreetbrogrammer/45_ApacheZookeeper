@@ -176,8 +176,99 @@ If the version it supplies doesn't match the actual version of the data, the upd
 
 ## Chapter 02. Zookeeper Installation and Setup
 
+**_Installation_**
 
+- Navigate to Zookeeper release page: https://zookeeper.apache.org/releases.html
+- Download the latest stable version: **Apache ZooKeeper 3.8.3 (latest stable release)**
 
+https://dlcdn.apache.org/zookeeper/zookeeper-3.8.3/apache-zookeeper-3.8.3-bin.tar.gz
+
+- Extract using `7-Zip` to local folder and set the system variable path
+
+```
+APACHE_ZOOKEEPER=C:\Users\{username}\Downloads\softwares\apache-zookeeper-3.8.3-bin
+PATH=%APACHE_ZOOKEEPER%\bin
+```
+
+- Create a new `logs` folder in Apache Zookeeper home dir:
+
+```
+cd "%APACHE_ZOOKEEPER%"
+mkdir logs
+```
+
+- Navigate to Apache Zookeeper conf directory and rename `zoo_sample.cfg` to `zoo.cfg`
+
+```
+cd "%APACHE_ZOOKEEPER%\conf"
+mv zoo_sample.cfg zoo.cfg
+```
+
+- Make following changes in `zoo.cfg`:
+
+```
+dataDir=dataDir=C:\\Users\\{username}\\Downloads\\softwares\\apache-zookeeper-3.8.3-bin\\logs
+```
+
+**_Verify installation_**
+
+- Open Git Bash
+- Zookeeper **start**, **status** and **stop** commands:
+
+```
+$ zkServer.sh start
+ZooKeeper JMX enabled by default
+Using config: C:\Users\rishi\Downloads\softwares\apache-zookeeper-3.8.3-bin\conf\zoo.cfg
+Starting zookeeper ... STARTED
+
+$ zkServer.sh status
+ZooKeeper JMX enabled by default
+Using config: C:\Users\rishi\Downloads\softwares\apache-zookeeper-3.8.3-bin\conf\zoo.cfg
+Client port found: 2181. Client address: localhost. Client SSL: false.
+Mode: standalone
+
+$ zkServer.sh stop
+ZooKeeper JMX enabled by default
+Using config: C:\Users\rishi\Downloads\softwares\apache-zookeeper-3.8.3-bin\conf\zoo.cfg
+Stopping zookeeper ... STOPPED
+```
+
+- `logs` folder will have entries after the above commands
+
+**_Zookeeper Client_**
+
+- Zookeeper client can be launched using the following command: `zkCli.sh`
+
+```
+# Start server
+zkServer.sh start
+
+# Start client
+zkCli.sh
+
+# following prompt should appear to run client commands
+[zk: localhost:2181(CONNECTED) 0]
+```
+
+- Some useful client commands to know:
+
+```
+help
+ls / => total znodes available
+create /parent "some parent data" => create parent znode
+create /parent/child "some child data" => create child znode
+set /parent/child "got new data" => data changed
+ls /parent
+get /parent => info about parent znode
+delete /parent
+deleteall /parent
+create /election ""
+quit
+```
+
+As seen above, we need to create `/election` znode to implement our leader election algorithm.
+
+---
 
 
 
