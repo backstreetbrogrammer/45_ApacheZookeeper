@@ -289,11 +289,6 @@ As seen above, we need to create `/election` znode to implement our leader elect
                 <artifactId>maven-assembly-plugin</artifactId>
                 <version>3.6.0</version>
                 <configuration>
-                    <archive>
-                        <manifest>
-                            <mainClass>com.backstreetbrogrammer.leader.election.LeaderElection</mainClass>
-                        </manifest>
-                    </archive>
                     <descriptorRefs>
                         <descriptorRef>jar-with-dependencies</descriptorRef>
                     </descriptorRefs>
@@ -319,6 +314,9 @@ log4j.appender.zookeeper.Target=System.out
 log4j.appender.zookeeper.layout=org.apache.log4j.PatternLayout
 log4j.appender.zookeeper.layout.ConversionPattern=%d{HH:mm:ss} %-5p %c{1}:%L - %m%n
 ```
+
+- Create a folder `scripts` and copy the start and stop scripts provided
+- Create a folder `log` for all the logs
 
 ---
 
@@ -349,6 +347,8 @@ log4j.appender.zookeeper.layout.ConversionPattern=%d{HH:mm:ss} %-5p %c{1}:%L - %
 
 **_Zookeeper API Introduction_**
 
+Basic `ZookeeperAPIDemo` class to just introduce Zookeeper API:
+
 ```java
 package com.backstreetbrogrammer.leader.election;
 
@@ -358,17 +358,17 @@ import org.apache.zookeeper.ZooKeeper;
 
 import java.io.IOException;
 
-public class LeaderElection implements Watcher {
+public class ZookeeperAPIDemo implements Watcher {
     private static final String ZOOKEEPER_ADDRESS = "localhost:2181";
     private static final int SESSION_TIMEOUT = 3000;
     private ZooKeeper zooKeeper;
 
     public static void main(final String[] arg) throws IOException, InterruptedException {
-        final LeaderElection leaderElection = new LeaderElection();
+        final ZookeeperAPIDemo zookeeperAPIDemo = new ZookeeperAPIDemo();
 
-        leaderElection.connectToZookeeper();
-        leaderElection.run();
-        leaderElection.close();
+        zookeeperAPIDemo.connectToZookeeper();
+        zookeeperAPIDemo.run();
+        zookeeperAPIDemo.close();
         System.out.println("Disconnected from Zookeeper, exiting application");
     }
 
@@ -404,7 +404,10 @@ public class LeaderElection implements Watcher {
         }
     }
 }
+
 ```
+
+**Program details:**
 
 - when the Zookeeper **client** connects to Zookeeper **server** - as its all asynchronous and event driven, server will
   respond to the events in the separate **event threads**
@@ -412,7 +415,114 @@ public class LeaderElection implements Watcher {
   `process()` method for successful connection
 - server sends event of type `None` and state as `Event.KeeperState.SyncConnected`
 - server also keeps on sending `ping` to check if the client is alive and connected
-- client maintains a background **IO thread** that has to send and respond to pings to and from server
-- if the server is down after successful connection, the event state will change and then client can close the
+- client maintains a background **IO thread** that has to send and respond to pings to and from the server
+- if the server is down after successful connection, the event state will change and then the client can close the
   connection
+
+**_Start and Stop the program_**
+
+- Open **Git Bash** to the root of the project and run: `mvn clean install`
+- Start Zookeeper server: `zkServer.sh start`
+- Start `ZookeeperAPIDemo` by running `runZookeeperAPIDemo.bat`
+- Output logs are present in `log\ZookeeperAPIDemo.log`
+- Stop `ZookeeperAPIDemo` by running `stopZookeeperAPIDemo.bat`
+- Stop Zookeeper server: `zkServer.sh stop`
+
+**_Leader Election Algorithm Code Demo_**
+
+`LeaderElection` class:
+
+```java
+package com.backstreetbrogrammer.leader.election;
+
+import org.apache.zookeeper.*;
+
+import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
+
+public class LeaderElection implements Watcher {
+    private static final String ZOOKEEPER_ADDRESS = "localhost:2181";
+    private static final int SESSION_TIMEOUT = 3000;
+    private static final String ELECTION_NAMESPACE = "/election";
+    private ZooKeeper zooKeeper;
+    private String currentZnodeName;
+
+    public static void main(final String[] arg) throws IOException, InterruptedException, KeeperException {
+        final LeaderElection leaderElection = new LeaderElection();
+
+        leaderElection.connectToZookeeper();
+        leaderElection.volunteerForLeadership();
+        leaderElection.electLeader();
+        leaderElection.run();
+        leaderElection.close();
+
+        System.out.println("Disconnected from Zookeeper, exiting application");
+    }
+
+    public void volunteerForLeadership() throws KeeperException, InterruptedException {
+        final String znodePrefix = String.format("%s/c_", ELECTION_NAMESPACE);
+        final String znodeFullPath = zooKeeper.create(znodePrefix, new byte[]{}, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
+
+        System.out.printf("znode name %s%n", znodeFullPath);
+        this.currentZnodeName = znodeFullPath.replace("/election/", "");
+    }
+
+    public void electLeader() throws KeeperException, InterruptedException {
+        final List<String> children = zooKeeper.getChildren(ELECTION_NAMESPACE, false);
+
+        Collections.sort(children);
+        final String smallestChild = children.get(0);
+
+        if (smallestChild.equals(currentZnodeName)) {
+            System.out.println("I am the leader");
+            return;
+        }
+
+        System.out.printf("I am not the leader, %s is the leader%n", smallestChild);
+    }
+
+    public void connectToZookeeper() throws IOException {
+        this.zooKeeper = new ZooKeeper(ZOOKEEPER_ADDRESS, SESSION_TIMEOUT, this);
+    }
+
+    private void run() throws InterruptedException {
+        synchronized (zooKeeper) {
+            zooKeeper.wait();
+        }
+    }
+
+    private void close() throws InterruptedException {
+        this.zooKeeper.close();
+    }
+
+    @Override
+    public void process(final WatchedEvent event) {
+        switch (event.getType()) {
+            case None:
+                if (event.getState() == Event.KeeperState.SyncConnected) {
+                    System.out.println("Successfully connected to Zookeeper");
+                } else {
+                    synchronized (zooKeeper) {
+                        System.out.println("Disconnected from Zookeeper event");
+                        zooKeeper.notifyAll();
+                    }
+                }
+                break;
+            default:
+                // do nothing
+        }
+    }
+}
+```
+
+**_Start and Stop the program_**
+
+- Open **Git Bash** to the root of the project and run: `mvn clean install`
+- Start Zookeeper server: `zkServer.sh start`
+- Start `LeaderElection` 4 instances in parallel by running `runLeaderElection4instances.bat`
+- We will observe that node instance with the lowest sequence number is the leader and all the other node instances are
+  follower
+- Stop `LeaderElection` by running `stopLeaderElection.bat`
+- Stop Zookeeper server: `zkServer.sh stop`
 
