@@ -16,7 +16,7 @@ Tools used:
     - [Scalability](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#scalability)
     - [Cluster Coordination](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#cluster-coordination)
 2. [Zookeeper Installation and Setup](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#chapter-02-zookeeper-installation-and-setup)
-3. Leader Election
+3. [Zookeeper Java API and Leader Election](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#chapter-03-zookeeper-java-api-and-leader-election)
 4. Cluster Auto-Healer
 
 ---
@@ -268,10 +268,151 @@ quit
 
 As seen above, we need to create `/election` znode to implement our leader election algorithm.
 
+**_IntelliJ Project Setup_**
+
+- Create a new `Java 8` project as a `Maven` project
+- Add following dependency in `pom.xml`
+
+```
+<!-- https://mvnrepository.com/artifact/org.apache.zookeeper/zookeeper -->
+<dependency>
+    <groupId>org.apache.zookeeper</groupId>
+    <artifactId>zookeeper</artifactId>
+    <version>3.8.3</version>
+</dependency>
+```
+
+- Add `maven-assembly-plugin` in pom.xml:
+
+```
+            <plugin>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>com.backstreetbrogrammer.leader.election.LeaderElection</mainClass>
+                        </manifest>
+                    </archive>
+                    <descriptorRefs>
+                        <descriptorRef>jar-with-dependencies</descriptorRef>
+                    </descriptorRefs>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id> <!-- this is used for inheritance merges -->
+                        <phase>package</phase> <!-- bind to the packaging phase -->
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+```
+
+- Create a file `log4j.properties` in `resources` folder with content as:
+
+```
+log4j.rootLogger=WARN, zookeeper
+log4j.appender.zookeeper=org.apache.log4j.ConsoleAppender
+log4j.appender.zookeeper.Target=System.out
+log4j.appender.zookeeper.layout=org.apache.log4j.PatternLayout
+log4j.appender.zookeeper.layout.ConversionPattern=%d{HH:mm:ss} %-5p %c{1}:%L - %m%n
+```
+
 ---
 
+## Chapter 03. Zookeeper Java API and Leader Election
 
+**_Threading model_**
 
+- Application start code in the `main` method is executed on the **main** thread
+- When **Zookeeper** object is created, two additional threads are created:
+    - IO thread
+    - Event thread
 
+**IO Thread**
 
+- handles all the network communication with Zookeeper servers
+- handles Zookeeper requests and responses
+- responds to pings
+- session management
+- session timeouts, etc.
+
+**Event Thread**
+
+- manages Zookeeper events
+    - connection (`KeeperState.SyncConnected`)
+    - disconnection (`KeeperState.Disconnected`)
+- custom znode **Watchers** and **Triggers** to subscribe to
+- Events are executed on Event Thread **in order**
+
+**_Zookeeper API Introduction_**
+
+```java
+package com.backstreetbrogrammer.leader.election;
+
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooKeeper;
+
+import java.io.IOException;
+
+public class LeaderElection implements Watcher {
+    private static final String ZOOKEEPER_ADDRESS = "localhost:2181";
+    private static final int SESSION_TIMEOUT = 3000;
+    private ZooKeeper zooKeeper;
+
+    public static void main(final String[] arg) throws IOException, InterruptedException {
+        final LeaderElection leaderElection = new LeaderElection();
+
+        leaderElection.connectToZookeeper();
+        leaderElection.run();
+        leaderElection.close();
+        System.out.println("Disconnected from Zookeeper, exiting application");
+    }
+
+    public void connectToZookeeper() throws IOException {
+        this.zooKeeper = new ZooKeeper(ZOOKEEPER_ADDRESS, SESSION_TIMEOUT, this);
+    }
+
+    private void run() throws InterruptedException {
+        synchronized (zooKeeper) {
+            zooKeeper.wait();
+        }
+    }
+
+    private void close() throws InterruptedException {
+        this.zooKeeper.close();
+    }
+
+    @Override
+    public void process(final WatchedEvent watchedEvent) {
+        switch (watchedEvent.getType()) {
+            case None:
+                if (watchedEvent.getState() == Event.KeeperState.SyncConnected) {
+                    System.out.println("Successfully connected to Zookeeper");
+                } else {
+                    synchronized (zooKeeper) {
+                        System.out.println("Disconnected from Zookeeper event");
+                        zooKeeper.notifyAll();
+                    }
+                }
+                break;
+            default:
+                // do nothing
+        }
+    }
+}
+```
+
+- when the Zookeeper **client** connects to Zookeeper **server** - as its all asynchronous and event driven, server will
+  respond to the events in the separate **event threads**
+- thus, **client** needs to implement `Watcher` and use **event handlers** to handle `WatchedEvent` in overridden
+  `process()` method for successful connection
+- server sends event of type `None` and state as `Event.KeeperState.SyncConnected`
+- server also keeps on sending `ping` to check if the client is alive and connected
+- client maintains a background **IO thread** that has to send and respond to pings to and from server
+- if the server is down after successful connection, the event state will change and then client can close the
+  connection
 
