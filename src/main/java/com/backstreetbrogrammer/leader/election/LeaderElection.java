@@ -30,7 +30,7 @@ public class LeaderElection implements Watcher {
         final String znodeFullPath = zooKeeper.create(znodePrefix, new byte[]{}, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
 
         System.out.printf("znode name %s%n", znodeFullPath);
-        this.currentZnodeName = znodeFullPath.replace("/election/", "");
+        this.currentZnodeName = znodeFullPath.replace(ELECTION_NAMESPACE + "/", "");
     }
 
     public void electLeader() throws KeeperException, InterruptedException {

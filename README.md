@@ -12,9 +12,11 @@ Tools used:
 ## Table of contents
 
 1. [Distributed Systems and Cluster Coordination](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#chapter-01-distributed-systems-and-cluster-coordination)
-    - [Distributed Systems](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#distributed-systems)
-    - [Scalability](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#scalability)
-    - [Cluster Coordination](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#cluster-coordination)
+
+- [Distributed Systems](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#distributed-systems)
+- [Scalability](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#scalability)
+- [Cluster Coordination](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#cluster-coordination)
+
 2. [Zookeeper Installation and Setup](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#chapter-02-zookeeper-installation-and-setup)
 3. [Zookeeper Java API and Leader Election](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#chapter-03-zookeeper-java-api-and-leader-election)
 4. [Zookeeper Watchers and Leader Reelection](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#chapter-03-zookeeper-watchers-and-leader-reelection)
@@ -695,7 +697,137 @@ deleteall /target_znode
 quit
 ```
 
-- `WatchersDemo` output will show all the events in the logs 
+- `WatchersDemo` output will show all the events in the logs
 - Stop `WatchersDemo` by running `stopWatchersDemo.bat`
+- Stop Zookeeper server: `zkServer.sh stop`
+
+**_Leader Reelection Algorithm_**
+
+In order for our system to be fault-tolerant, the Leader Election algorithm needs to be able to recover from failures
+and re-elect a new leader automatically.
+
+Each **znode** needs to watch its predecessor **znode**. Thus if the leader node dies and hence its corresponding
+**znode**, then only the successor **znode** will get notified making its corresponding node as the new leader.
+
+Similarly, if the deleted node and **znode** were not the leader, then the successor node / **znode** will fill the gap
+making its new predecessor, without changing any leadership.
+
+This forms a linked list type of data structure where each node and its **znode** are watching its predecessor
+**znode**.
+
+**Code Demo**
+
+`LeaderReelection` class:
+
+```java
+package com.backstreetbrogrammer.leader.election;
+
+import org.apache.zookeeper.*;
+import org.apache.zookeeper.data.Stat;
+
+import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
+
+public class LeaderReelection implements Watcher {
+    private static final String ZOOKEEPER_ADDRESS = "localhost:2181";
+    private static final int SESSION_TIMEOUT = 3000;
+    private static final String ELECTION_NAMESPACE = "/election";
+    private ZooKeeper zooKeeper;
+    private String currentZnodeName;
+
+    public static void main(final String[] args) throws IOException, InterruptedException, KeeperException {
+        final LeaderReelection leaderReelection = new LeaderReelection();
+
+        leaderReelection.connectToZookeeper();
+        leaderReelection.volunteerForLeadership();
+        leaderReelection.reelectLeader();
+        leaderReelection.run();
+        leaderReelection.close();
+        System.out.println("Disconnected from Zookeeper, exiting application");
+    }
+
+    public void volunteerForLeadership() throws KeeperException, InterruptedException {
+        final String znodePrefix = String.format("%s/c_", ELECTION_NAMESPACE);
+        final String znodeFullPath = zooKeeper.create(znodePrefix, new byte[]{}, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
+
+        System.out.printf("znode name %s%n", znodeFullPath);
+        this.currentZnodeName = znodeFullPath.replace(ELECTION_NAMESPACE + "/", "");
+    }
+
+    public void reelectLeader() throws KeeperException, InterruptedException {
+        Stat predecessorStat = null;
+        String predecessorZnodeName = "";
+        while (predecessorStat == null) {
+            final List<String> children = zooKeeper.getChildren(ELECTION_NAMESPACE, false);
+
+            Collections.sort(children);
+            final String smallestChild = children.get(0);
+
+            if (smallestChild.equals(currentZnodeName)) {
+                System.out.println("I am the leader");
+                return;
+            } else {
+                System.out.println("I am not the leader");
+                final int predecessorIndex = Collections.binarySearch(children, currentZnodeName) - 1;
+                predecessorZnodeName = children.get(predecessorIndex);
+                predecessorStat = zooKeeper.exists(ELECTION_NAMESPACE + "/" + predecessorZnodeName, this);
+            }
+        }
+
+        System.out.printf("Watching znode %s%n", predecessorZnodeName);
+        System.out.println();
+    }
+
+    public void connectToZookeeper() throws IOException {
+        this.zooKeeper = new ZooKeeper(ZOOKEEPER_ADDRESS, SESSION_TIMEOUT, this);
+    }
+
+    public void run() throws InterruptedException {
+        synchronized (zooKeeper) {
+            zooKeeper.wait();
+        }
+    }
+
+    public void close() throws InterruptedException {
+        zooKeeper.close();
+    }
+
+    @Override
+    public void process(final WatchedEvent event) {
+        switch (event.getType()) {
+            case None:
+                if (event.getState() == Event.KeeperState.SyncConnected) {
+                    System.out.println("Successfully connected to Zookeeper");
+                } else {
+                    synchronized (zooKeeper) {
+                        System.out.println("Disconnected from Zookeeper event");
+                        zooKeeper.notifyAll();
+                    }
+                }
+                break;
+            case NodeDeleted:
+                try {
+                    reelectLeader();
+                } catch (final InterruptedException | KeeperException e) {
+                    System.err.println(e.getMessage());
+                }
+                break;
+            default:
+                // do nothing
+        }
+    }
+}
+```
+
+**_Start and Stop the program_**
+
+- Open **Git Bash** to the root of the project and run: `mvn clean install`
+- Start Zookeeper server: `zkServer.sh start`
+- Start `LeaderReelection` 4 instances in parallel by running `runLeaderReelection4instances.bat`
+- We will observe that node instance with the lowest sequence number is the leader and all the other node instances are
+  follower
+- As soon as we terminate the leader node, the next successor node becomes the new leader automatically
+- Stop `LeaderReelection` by running `stopLeaderReelection.bat`
 - Stop Zookeeper server: `zkServer.sh stop`
 
