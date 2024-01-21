@@ -17,7 +17,7 @@ Tools used:
     - [Cluster Coordination](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#cluster-coordination)
 2. [Zookeeper Installation and Setup](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#chapter-02-zookeeper-installation-and-setup)
 3. [Zookeeper Java API and Leader Election](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#chapter-03-zookeeper-java-api-and-leader-election)
-4. Cluster Auto-Healer
+4. [Zookeeper Watchers and Leader Reelection](https://github.com/backstreetbrogrammer/45_ApacheZookeeper?tab=readme-ov-file#chapter-03-zookeeper-watchers-and-leader-reelection)
 
 ---
 
@@ -526,3 +526,60 @@ public class LeaderElection implements Watcher {
 - Stop `LeaderElection` by running `stopLeaderElection.bat`
 - Stop Zookeeper server: `zkServer.sh stop`
 
+---
+
+## Chapter 04. Zookeeper Watchers and Leader Reelection
+
+**_Zookeeper Watchers_**
+
+> A watch event is a one-time trigger, sent to the client that sets the watch, which occurs when the data for which the
+> watch was set **changes**.
+
+All the read operations in ZooKeeper - `exists()`, `getData()`, and `getChildren()` - have the option of setting a watch
+as a side effect. The following list details the events that a watch can trigger and the calls that enable them:
+
+- **Created event**: Enabled with a call to `exists()`.
+- **Deleted event**: Enabled with a call to `exists()`, `getData()`, and `getChildren()`.
+- **Changed event**: Enabled with a call to `exists()` and `getData()`.
+- **Child event**: Enabled with a call to `getChildren()`.
+
+There are three key points to consider in this definition of a watch:
+
+- **One-time trigger**: One watch event will be sent to the client when the data has changed. For example, if a
+  client does a `getData("/znode1", true)` and later the data for `/znode1` is changed or deleted, the client will get a
+  watch event for `/znode1`. If `/znode1` changes again, no watch event will be sent unless the client has done another
+  read that sets a new watch.
+- **Sent to the client**: This implies that an event is on the way to the client, but may not reach the client
+  before the successful return code to the change operation reaches the client that initiated the change. Watches are
+  sent **asynchronously** to watchers. ZooKeeper provides an **ordering guarantee**: a client will never see a change
+  for which it has set a watch until it first sees the watch event. Network delays or other factors may cause different
+  clients to see watches and return codes from updates at different times. The key point is that everything seen by the
+  different clients will have a **consistent order**.
+- **The data for which the watch was set**: This refers to the different ways a node can change. It helps to think of
+  ZooKeeper as maintaining **two** lists of watches: **data watches** and **child watches**.
+
+`getData()` and `exists()` set **data watches**.
+
+`getChildren()` sets **child watches**.
+
+Alternatively, it may help to think of watches being set according to the kind of data returned.
+
+`getData()` and `exists()` return information about the data of the node, whereas `getChildren()` returns a list of
+children. Thus, `setData()` will trigger data watches for the **znode** being set (assuming the set is successful).
+
+A successful `create()` will trigger a data watch for the **znode** being created and a child watch for the parent
+**znode**.
+
+A successful `delete()` will trigger both a data watch and a child watch (since there can be no more children) for a
+**znode** being deleted as well as a child watch for the **parent znode**.
+
+Watches are maintained locally at the ZooKeeper server to which the client is connected. This allows watches to be
+lightweight to set, maintain, and dispatch.
+
+When a client connects to a new server, the watch will be triggered for any session events.
+
+Watches will not be received while disconnected from a server. When a client reconnects, any previously registered
+watches will be re-registered and triggered if needed. In general, this all occurs transparently.
+
+There is one case where a watch may be missed: a watch for the existence of a **znode** not yet created will be missed
+if the **znode** is created and deleted while disconnected.
